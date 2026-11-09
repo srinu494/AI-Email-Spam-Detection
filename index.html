@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Email Spam Detection</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f2f4f8;
+            margin: 0;
+            padding: 25px;
+        }
+
+        .container {
+            max-width: 950px;
+            margin: auto;
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.1);
+        }
+
+        h1, h2 {
+            text-align: center;
+            color: #222;
+        }
+
+        .buttons {
+            text-align: center;
+            margin: 25px 0;
+        }
+
+        button {
+            padding: 12px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 6px;
+            background: #1769aa;
+            color: white;
+            cursor: pointer;
+            font-size: 15px;
+        }
+
+        button:disabled {
+            background: #999;
+            cursor: not-allowed;
+        }
+
+        .summary {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin: 25px 0;
+        }
+
+        .box {
+            flex: 1;
+            min-width: 150px;
+            padding: 20px;
+            text-align: center;
+            border-radius: 8px;
+            background: #eef4ff;
+        }
+
+        .box h2 {
+            font-size: 30px;
+            margin: 10px;
+        }
+
+        .spam-box {
+            background: #fff0f0;
+            color: #c62828;
+        }
+
+        .not-spam-box {
+            background: #edfff2;
+            color: #16803c;
+        }
+
+        .progress-container {
+            background: #ddd;
+            border-radius: 10px;
+            height: 18px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: #219653;
+            transition: width 0.3s;
+        }
+
+        .email-card {
+            border: 1px solid #ddd;
+            border-left: 6px solid #e53935;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+            background: #fffafa;
+            overflow-wrap: anywhere;
+        }
+
+        .spam-label {
+            color: #d32f2f;
+            font-weight: bold;
+        }
+
+        .status {
+            text-align: center;
+            color: #555;
+            margin: 15px;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 25px;
+            color: #16803c;
+            background: #edfff2;
+            border-radius: 8px;
+        }
+
+        .error {
+            color: #c62828;
+            text-align: center;
+            padding: 12px;
+        }
+
+        .refresh-info {
+            text-align: center;
+            color: #777;
+            font-size: 13px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>AI Email Spam Detection</h1>
+
+    <div class="buttons">
+
+        <button id="connectBtn" onclick="connectGmail()">
+            Connect Gmail
+        </button>
+
+        <button id="startBtn" onclick="startScan()" disabled>
+            Start Full Scan
+        </button>
+
+        <button id="resumeBtn" onclick="runBatches()" disabled>
+            Resume Scan
+        </button>
+
+        <button id="logoutBtn" onclick="logoutGmail()" disabled>
+            Logout
+        </button>
+
+    </div>
+
+    <p class="status" id="connectionStatus">
+        Please connect your Gmail account.
+    </p>
+
+    <div class="summary">
+
+        <div class="box">
+            <h3>Total Emails</h3>
+            <h2 id="totalEmails">0</h2>
+        </div>
+
+        <div class="box">
+            <h3>Emails Scanned</h3>
+            <h2 id="scannedEmails">0</h2>
+        </div>
+
+        <div class="box spam-box">
+            <h3>Spam Found</h3>
+            <h2 id="spamCount">0</h2>
+        </div>
+
+        <div class="box not-spam-box">
+            <h3>Not Spam</h3>
+            <h2 id="notSpamCount">0</h2>
+        </div>
+
+    </div>
+
+    <p class="status" id="progressText">
+        Scan not started.
+    </p>
+
+    <div class="progress-container">
+        <div class="progress-bar" id="progressBar"></div>
+    </div>
+
+    <p class="refresh-info" id="refreshTime">
+        Automatic checking: Waiting for full scan.
+    </p>
+
+    <h2>Spam Email Details</h2>
+
+    <div id="emailList">
+        <p class="status">Connect Gmail to start scanning.</p>
+    </div>
+
+    <p class="error" id="errorMessage"></p>
+
+</div>
+
+<script>
+"use strict";
+
+const API_URL = "http://127.0.0.1:5000";
+
+let gmailConnected = false;
+let scanning = false;
+let autoRefreshTimer = null;
+
+
+// ERROR MESSAGE
+
+function showError(message) {
+    document.getElementById("errorMessage").innerText = message;
+}
+
+function clearError() {
+    document.getElementById("errorMessage").innerText = "";
+}
+
+
+// SAFE HTML
+
+function escapeHTML(value) {
+    return String(value ?? "").replace(/[&<>"']/g, character => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+    })[character]);
+}
+
+
+// CONNECT GMAIL
+
+async function connectGmail() {
+
+    const button = document.getElementById("connectBtn");
+
+    button.disabled = true;
+    button.innerText = "Connecting...";
+
+    clearError();
+
+    try {
+
+        const response = await fetch(API_URL + "/connect-gmail", {
+            method: "POST"
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || data.error || "Gmail connection failed.");
+        }
+
+        gmailConnected = true;
+
+        document.getElementById("connectionStatus").innerText =
+            "Gmail Connected: " + data.email;
+
+        button.innerText = "Gmail Connected";
+
+        document.getElementById("startBtn").disabled = false;
+        document.getElementById("resumeBtn").disabled = false;
+        document.getElementById("logoutBtn").disabled = false;
+
+        await loadSavedResults();
+
+    } catch (error) {
+
+        showError(error.message);
+
+        button.disabled = false;
+        button.innerText = "Connect Gmail";
+    }
+}
+
+
+// START FULL SCAN
+
+async function startScan() {
+
+    if (!gmailConnected || scanning) return;
+
+    clearError();
+
+    document.getElementById("startBtn").disabled = true;
+    document.getElementById("resumeBtn").disabled = true;
+
+    try {
+
+        document.getElementById("progressText").innerText =
+            "Preparing a fresh email scan...";
+
+        const response = await fetch(API_URL + "/start-scan", {
+            method: "POST"
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || "Unable to start scan.");
+        }
+
+        updateResults({
+            total_emails: data.total_emails,
+            scanned: 0,
+            emails: []
+        });
+
+        if (data.total_emails === 0) {
+
+            document.getElementById("progressText").innerText =
+                "No emails found.";
+
+            document.getElementById("startBtn").disabled = false;
+            return;
+        }
+
+        await runBatches();
+
+    } catch (error) {
+
+        showError(error.message);
+        document.getElementById("startBtn").disabled = false;
+    }
+}
+
+
+// SCAN EMAILS IN BATCHES
+
+async function runBatches() {
+
+    if (!gmailConnected || scanning) return;
+
+    scanning = true;
+
+    document.getElementById("startBtn").disabled = true;
+    document.getElementById("resumeBtn").disabled = true;
+
+    clearError();
+
+    try {
+
+        while (true) {
+
+            document.getElementById("progressText").innerText =
+                "Scanning emails...";
+
+            const response = await fetch(API_URL + "/scan-batch", {
+                method: "POST"
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Scanning failed.");
+            }
+
+            updateResults(data);
+
+            if (data.completed) {
+
+                document.getElementById("progressText").innerText =
+                    "Full scan completed successfully!";
+
+                startAutoRefresh();
+                break;
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+    } catch (error) {
+
+        showError(error.message);
+
+        document.getElementById("progressText").innerText =
+            "Scanning paused. Click Resume Scan.";
+
+        document.getElementById("resumeBtn").disabled = false;
+
+    } finally {
+
+        scanning = false;
+
+        document.getElementById("startBtn").disabled = false;
+    }
+}
+
+
+// UPDATE DASHBOARD
+
+function updateResults(data) {
+
+    const emails = Array.isArray(data.emails) ? data.emails : [];
+
+    // Normalize prediction before filtering.
+    const spamEmails = emails.filter(email =>
+        String(email?.prediction || "").trim().toLowerCase() === "spam"
+    );
+
+    const notSpamEmails = emails.filter(email =>
+        String(email?.prediction || "").trim().toLowerCase() === "not spam"
+    );
+
+    const total = Number(data.total_emails) || 0;
+    const scanned = Number(data.scanned ?? data.total_scanned) || 0;
+
+    document.getElementById("totalEmails").innerText = total;
+    document.getElementById("scannedEmails").innerText = scanned;
+
+    // Counts use the same predictions as the displayed results.
+    document.getElementById("spamCount").innerText =
+        spamEmails.length;
+
+    document.getElementById("notSpamCount").innerText =
+        notSpamEmails.length;
+
+    const percentage = total > 0
+        ? Math.min((scanned / total) * 100, 100)
+        : 0;
+
+    document.getElementById("progressBar").style.width =
+        percentage + "%";
+
+    document.getElementById("progressText").innerText =
+        "Scanning progress: " + percentage.toFixed(1) + "%";
+
+    // Only Spam emails are sent to the display function.
+    displaySpamEmails(spamEmails);
+}
+
+
+// DISPLAY ONLY SPAM EMAILS
+
+function displaySpamEmails(spamEmails) {
+
+    const emailList = document.getElementById("emailList");
+
+    emailList.innerHTML = "";
+
+    if (spamEmails.length === 0) {
+
+        emailList.innerHTML = `
+            <div class="empty">
+                <h3>No Spam Emails Found!</h3>
+                <p>No emails are currently classified as Spam.</p>
+            </div>
+        `;
+
+        return;
+    }
+
+    spamEmails.forEach((email, index) => {
+
+        const card = document.createElement("div");
+
+        card.className = "email-card";
+
+        card.innerHTML = `
+            <h3>${index + 1}. ${escapeHTML(email.subject || "No Subject")}</h3>
+
+            <p>
+                <strong>From:</strong>
+                ${escapeHTML(email.sender || "Unknown Sender")}
+            </p>
+
+            <p class="spam-label">⚠️ SPAM DETECTED</p>
+
+            <p>
+                <strong>Detection Source:</strong>
+                ${escapeHTML(email.source || "AI Detection")}
+            </p>
+        `;
+
+        emailList.appendChild(card);
+    });
+}
+
+
+// LOAD SAVED RESULTS
+
+async function loadSavedResults() {
+
+    const response = await fetch(API_URL + "/emails");
+
+    const data = await response.json();
+
+    if (!response.ok) {
+        throw new Error(data.error || "Unable to load saved emails.");
+    }
+
+    updateResults(data);
+
+    if (data.completed && data.total_emails > 0) {
+
+        document.getElementById("progressText").innerText =
+            "Full scan already completed.";
+
+        document.getElementById("resumeBtn").disabled = true;
+
+        startAutoRefresh();
+
+    } else if (data.total_emails > 0) {
+
+        document.getElementById("resumeBtn").disabled = false;
+    }
+}
+
+
+// CHECK NEW EMAILS
+
+async function checkNewEmails() {
+
+    if (!gmailConnected || scanning) return;
+
+    try {
+
+        document.getElementById("refreshTime").innerText =
+            "Checking for new emails...";
+
+        const response = await fetch(API_URL + "/check-new-emails", {
+            method: "POST"
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || "Unable to check new emails.");
+        }
+
+        await loadSavedResults();
+
+        document.getElementById("refreshTime").innerText =
+            "Last automatic check: " + new Date().toLocaleString();
+
+    } catch (error) {
+
+        showError(error.message);
+    }
+}
+
+
+// AUTOMATIC REFRESH
+
+function startAutoRefresh() {
+
+    if (autoRefreshTimer) {
+        clearInterval(autoRefreshTimer);
+    }
+
+    document.getElementById("refreshTime").innerText =
+        "Automatic checking: Every 2 minutes.";
+
+    autoRefreshTimer = setInterval(checkNewEmails, 120000);
+}
+
+
+// LOGOUT
+
+async function logoutGmail() {
+
+    if (scanning) {
+        showError("Please wait until the current scan finishes.");
+        return;
+    }
+
+    try {
+
+        const response = await fetch(API_URL + "/logout", {
+            method: "POST"
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || "Logout failed.");
+        }
+
+        gmailConnected = false;
+
+        if (autoRefreshTimer) {
+            clearInterval(autoRefreshTimer);
+            autoRefreshTimer = null;
+        }
+
+        document.getElementById("connectBtn").disabled = false;
+        document.getElementById("connectBtn").innerText = "Connect Gmail";
+
+        document.getElementById("startBtn").disabled = true;
+        document.getElementById("resumeBtn").disabled = true;
+        document.getElementById("logoutBtn").disabled = true;
+
+        document.getElementById("connectionStatus").innerText =
+            "Please connect your Gmail account.";
+
+        document.getElementById("totalEmails").innerText = "0";
+        document.getElementById("scannedEmails").innerText = "0";
+        document.getElementById("spamCount").innerText = "0";
+        document.getElementById("notSpamCount").innerText = "0";
+
+        document.getElementById("progressBar").style.width = "0%";
+
+        document.getElementById("progressText").innerText =
+            "Scan not started.";
+
+        document.getElementById("refreshTime").innerText =
+            "Automatic checking: Waiting for full scan.";
+
+        document.getElementById("emailList").innerHTML =
+            '<p class="status">Connect Gmail to start scanning.</p>';
+
+        clearError();
+
+    } catch (error) {
+
+        showError(error.message);
+    }
+}
+
+</script>
+
+</body>
+</html>
